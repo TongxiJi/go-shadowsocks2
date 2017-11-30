@@ -73,6 +73,7 @@ func tcpLocal(addr, server string, shadow func(net.Conn) net.Conn, getAddr func(
 				logf("failed to connect to server %v: %v", server, err)
 				return
 			}
+			rc.(*net.TCPConn).SetKeepAlive(true)
 			defer rc.Close()
 			req, err := http.NewRequest("GET", fmt.Sprintf("http://%s",server), nil)
 			if err = req.Write(rc);err != nil {
@@ -86,9 +87,7 @@ func tcpLocal(addr, server string, shadow func(net.Conn) net.Conn, getAddr func(
 				return
 			}
 
-			rc.(*net.TCPConn).SetKeepAlive(true)
 			rc = shadow(rc)
-
 			if _, err = rc.Write(tgt); err != nil {
 				logf("failed to send target address: %v", err)
 				return
@@ -124,6 +123,8 @@ func tcpRemote(addr string, shadow func(net.Conn) net.Conn) {
 
 		go func() {
 			defer c.Close()
+			c.(*net.TCPConn).SetKeepAlive(true)
+
 			reader := bufio.NewReader(c)
 			if req,err:= http.ReadRequest(reader);err != nil {
 				logf("read http request : %v,err %v", req, err)
@@ -140,9 +141,7 @@ func tcpRemote(addr string, shadow func(net.Conn) net.Conn) {
 				return
 			}
 
-			c.(*net.TCPConn).SetKeepAlive(true)
 			c = shadow(c)
-
 			tgt, err := socks.ReadAddr(c)
 			if err != nil {
 				logf("failed to get target address: %v", err)
