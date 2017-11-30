@@ -75,11 +75,15 @@ func tcpLocal(addr, server string, shadow func(net.Conn) net.Conn, getAddr func(
 			}
 			defer rc.Close()
 			req, err := http.NewRequest("GET", fmt.Sprintf("http://%s",server), nil)
-			req.Write(rc)
-			reader := bufio.NewReader(rc)
+			if err = req.Write(rc);err != nil {
+				logf("send request failed %v",err)
+				return
+			}
 
+			reader := bufio.NewReader(rc)
 			if _,err := http.ReadResponse(reader,req);err != nil {
 				logf("read response failed %v",err)
+				return
 			}
 
 			rc.(*net.TCPConn).SetKeepAlive(true)
@@ -120,19 +124,23 @@ func tcpRemote(addr string, shadow func(net.Conn) net.Conn) {
 
 		go func() {
 			defer c.Close()
-			c.(*net.TCPConn).SetKeepAlive(true)
-
 			reader := bufio.NewReader(c)
-			req,err:= http.ReadRequest(reader)
-			logf("read http url : %v,err %v",req ,err )
+			if req,err:= http.ReadRequest(reader);err != nil {
+				logf("read http request : %v,err %v", req, err)
+				return
+			}
 			res := &http.Response{
 				ContentLength:0,
 				Status:"200 OK",
 				StatusCode:200,
 				Close:false,
 			}
-			res.Write(c)
+			if  err = res.Write(c);err != nil{
+				logf("http response write failed: %v,err %v", res, err)
+				return
+			}
 
+			c.(*net.TCPConn).SetKeepAlive(true)
 			c = shadow(c)
 
 			tgt, err := socks.ReadAddr(c)
