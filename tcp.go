@@ -6,6 +6,10 @@ import (
 	"time"
 
 	"github.com/shadowsocks/go-shadowsocks2/socks"
+	"net/http"
+	"bufio"
+	//"strings"
+	"fmt"
 )
 
 // Create a SOCKS server listening on addr and proxy to server.
@@ -70,6 +74,14 @@ func tcpLocal(addr, server string, shadow func(net.Conn) net.Conn, getAddr func(
 				return
 			}
 			defer rc.Close()
+			req, err := http.NewRequest("GET", fmt.Sprintf("http://%s",server), nil)
+			req.Write(rc)
+			reader := bufio.NewReader(rc)
+
+			if _,err := http.ReadResponse(reader,req);err != nil {
+				logf("read response failed %v",err)
+			}
+
 			rc.(*net.TCPConn).SetKeepAlive(true)
 			rc = shadow(rc)
 
@@ -109,6 +121,18 @@ func tcpRemote(addr string, shadow func(net.Conn) net.Conn) {
 		go func() {
 			defer c.Close()
 			c.(*net.TCPConn).SetKeepAlive(true)
+
+			reader := bufio.NewReader(c)
+			req,err:= http.ReadRequest(reader)
+			logf("read http url : %v,err %v",req ,err )
+			res := &http.Response{
+				ContentLength:0,
+				Status:"200 OK",
+				StatusCode:200,
+				Close:false,
+			}
+			res.Write(c)
+
 			c = shadow(c)
 
 			tgt, err := socks.ReadAddr(c)
