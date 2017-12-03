@@ -5,7 +5,7 @@ import (
 	"net"
 	"time"
 
-	"github.com/shadowsocks/go-shadowsocks2/socks"
+	"github.com/TongxiJi/go-shadowsocks2/socks"
 	"net/http"
 	"bufio"
 	//"strings"
@@ -94,7 +94,8 @@ func tcpLocal(addr, server string, shadow func(net.Conn) net.Conn, getAddr func(
 			}
 
 			logf("proxy %s <-> %s <-> %s", c.RemoteAddr(), server, tgt)
-			_, _, err = relay(rc, c)
+			outbound,inbound,err := relay(rc, c)
+			logf("%s proxy,inbound:%d,outbound:%d",tgt,inbound,outbound)
 			if err != nil {
 				if err, ok := err.(net.Error); ok && err.Timeout() {
 					return // ignore i/o timeout
@@ -158,13 +159,13 @@ func tcpRemote(addr string, shadow func(net.Conn) net.Conn) {
 
 			logf("proxy %s <-> %s", c.RemoteAddr(), tgt)
 			outbound, inbound, err := relay(c, rc)
+			logf("%s proxy,inbound:%d,outbound:%d",tgt,inbound,outbound)
 			if err != nil {
 				if err, ok := err.(net.Error); ok && err.Timeout() {
 					return // ignore i/o timeout
 				}
 				logf("relay error: %v", err)
 			}
-			logf("%s proxy,inbound:%d,outbound:%d",tgt,inbound,outbound)
 		}()
 	}
 }
