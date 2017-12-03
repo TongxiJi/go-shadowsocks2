@@ -15,7 +15,9 @@ import (
 // Create a SOCKS server listening on addr and proxy to server.
 func socksLocal(addr, server string, shadow func(net.Conn) net.Conn) {
 	logf("SOCKS proxy %s <-> %s", addr, server)
-	tcpLocal(addr, server, shadow, func(c net.Conn) (socks.Addr, error) { return socks.Handshake(c) })
+	tcpLocal(addr, server, shadow, func(c net.Conn) (socks.Addr, error) {
+		return socks.Handshake(c)
+	})
 }
 
 // Create a TCP tunnel from addr to target via server.
@@ -26,7 +28,9 @@ func tcpTun(addr, server, target string, shadow func(net.Conn) net.Conn) {
 		return
 	}
 	logf("TCP tunnel %s <-> %s <-> %s", addr, server, target)
-	tcpLocal(addr, server, shadow, func(net.Conn) (socks.Addr, error) { return tgt, nil })
+	tcpLocal(addr, server, shadow, func(net.Conn) (socks.Addr, error) {
+		return tgt, nil
+	})
 }
 
 // Listen on addr and proxy to server to reach target from getAddr.
@@ -75,15 +79,15 @@ func tcpLocal(addr, server string, shadow func(net.Conn) net.Conn, getAddr func(
 			}
 			rc.(*net.TCPConn).SetKeepAlive(true)
 			defer rc.Close()
-			req, err := http.NewRequest("GET", fmt.Sprintf("http://%s",server), nil)
-			if err = req.Write(rc);err != nil {
-				logf("send request failed %v",err)
+			req, err := http.NewRequest("GET", fmt.Sprintf("http://%s", server), nil)
+			if err = req.Write(rc); err != nil {
+				logf("send request failed %v", err)
 				return
 			}
 
 			reader := bufio.NewReader(rc)
-			if _,err := http.ReadResponse(reader,req);err != nil {
-				logf("read response failed %v",err)
+			if _, err := http.ReadResponse(reader, req); err != nil {
+				logf("read response failed %v", err)
 				return
 			}
 
@@ -94,8 +98,8 @@ func tcpLocal(addr, server string, shadow func(net.Conn) net.Conn, getAddr func(
 			}
 
 			logf("proxy %s <-> %s <-> %s", c.RemoteAddr(), server, tgt)
-			outbound,inbound,err := relay(rc, c)
-			logf("%s proxy,inbound:%d,outbound:%d",tgt,inbound,outbound)
+			outbound, inbound, err := relay(rc, c)
+			logf("%s proxy,inbound:%d,outbound:%d", tgt, inbound, outbound)
 			if err != nil {
 				if err, ok := err.(net.Error); ok && err.Timeout() {
 					return // ignore i/o timeout
@@ -127,7 +131,7 @@ func tcpRemote(addr string, shadow func(net.Conn) net.Conn) {
 			c.(*net.TCPConn).SetKeepAlive(true)
 
 			reader := bufio.NewReader(c)
-			if req,err:= http.ReadRequest(reader);err != nil {
+			if req, err := http.ReadRequest(reader); err != nil {
 				logf("read http request : %v,err %v", req, err)
 				return
 			}
@@ -137,7 +141,7 @@ func tcpRemote(addr string, shadow func(net.Conn) net.Conn) {
 				StatusCode:200,
 				Close:false,
 			}
-			if  err = res.Write(c);err != nil{
+			if err = res.Write(c); err != nil {
 				logf("http response write failed: %v,err %v", res, err)
 				return
 			}
@@ -158,8 +162,8 @@ func tcpRemote(addr string, shadow func(net.Conn) net.Conn) {
 			rc.(*net.TCPConn).SetKeepAlive(true)
 
 			logf("proxy %s <-> %s", c.RemoteAddr(), tgt)
-			outbound, inbound, err := relay(c, rc)
-			logf("%s proxy,inbound:%d,outbound:%d",tgt,inbound,outbound)
+			inbound, outbound, err := relay(c, rc)
+			logf("%s proxy,inbound:%d,outbound:%d", tgt, inbound, outbound)
 			if err != nil {
 				if err, ok := err.(net.Error); ok && err.Timeout() {
 					return // ignore i/o timeout
