@@ -5,7 +5,7 @@ import (
 	"net"
 	"time"
 
-	"github.com/TongxiJi/go-shadowsocks2/socks"
+	"github.com/shadowsocks/go-shadowsocks2/socks"
 	"net/http"
 	"bufio"
 	//"strings"
