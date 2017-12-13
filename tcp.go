@@ -6,10 +6,7 @@ import (
 	"time"
 
 	"github.com/shadowsocks/go-shadowsocks2/socks"
-	"net/http"
-	"bufio"
-	//"strings"
-	"fmt"
+	"github.com/TongxiJi/go-shadowsocks2/plugin"
 )
 
 // Create a SOCKS server listening on addr and proxy to server.
@@ -79,15 +76,9 @@ func tcpLocal(addr, server string, shadow func(net.Conn) net.Conn, getAddr func(
 			}
 			rc.(*net.TCPConn).SetKeepAlive(true)
 			defer rc.Close()
-			req, err := http.NewRequest("GET", fmt.Sprintf("http://%s", server), nil)
-			if err = req.Write(rc); err != nil {
-				logf("send request failed %v", err)
-				return
-			}
 
-			reader := bufio.NewReader(rc)
-			if _, err := http.ReadResponse(reader, req); err != nil {
-				logf("read response failed %v", err)
+			if err = httpPlugin.ClientHandle(server,&plugin.UserDetails{UserName:username,Password:password},rc);err != nil {
+				logf("http plugin client handel error: %v", err)
 				return
 			}
 
@@ -111,7 +102,7 @@ func tcpLocal(addr, server string, shadow func(net.Conn) net.Conn, getAddr func(
 }
 
 // Listen on addr for incoming connections.
-func tcpRemote(addr string, shadow func(net.Conn) net.Conn) {
+func tcpRemote(addr string) {
 	l, err := net.Listen("tcp", addr)
 	if err != nil {
 		logf("failed to listen on %s: %v", addr, err)
@@ -130,19 +121,18 @@ func tcpRemote(addr string, shadow func(net.Conn) net.Conn) {
 			defer c.Close()
 			c.(*net.TCPConn).SetKeepAlive(true)
 
-			reader := bufio.NewReader(c)
-			if req, err := http.ReadRequest(reader); err != nil {
-				logf("read http request : %v,err %v", req, err)
+			var shadow func(net.Conn) net.Conn
+
+			var user *plugin.UserDetails
+			if user, err = httpPlugin.ServerHandle(c); err != nil {
+				logf("http plugin handle error: %v", err)
 				return
 			}
-			res := &http.Response{
-				ContentLength:0,
-				Status:"200 OK",
-				StatusCode:200,
-				Close:false,
-			}
-			if err = res.Write(c); err != nil {
-				logf("http response write failed: %v,err %v", res, err)
+
+			if chpher, ok := cipherMap[user.UserName]; ok {
+				shadow = chpher.StreamConn
+			} else {
+				logf("not find user cipher: %s", user)
 				return
 			}
 
