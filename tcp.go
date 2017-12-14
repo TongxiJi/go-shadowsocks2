@@ -77,7 +77,7 @@ func tcpLocal(addr, server string, shadow func(net.Conn) net.Conn, getAddr func(
 			rc.(*net.TCPConn).SetKeepAlive(true)
 			defer rc.Close()
 
-			if err = httpPlugin.ClientHandle(server, strings.Join([]string{username, password}, "-"), rc); err != nil {
+			if err =  httpPlugin.ClientHandle(server, strings.Join([]string{username, password}, "-"), rc); err != nil {
 				logf("http plugin client handel error: %v", err)
 				return
 			}

@@ -98,6 +98,12 @@ func main() {
 		key = k
 	}
 
+	httpPlugin = &plugin.HttpPlugin{
+		DecodeToken:decodeToken,
+		EncodeToken:encodeToken,
+		Auth: auth,
+	}
+
 	if flags.Client != "" {
 		// client mode
 		addr := flags.Client
@@ -179,12 +185,6 @@ func main() {
 			defer file.Close()
 			json.NewDecoder(file).Decode(&config)
 			logf("config %v", config)
-
-			httpPlugin = &plugin.HttpPlugin{
-				DecodeToken:decodeToken,
-				EncodeToken:encodeToken,
-				Auth: auth,
-			}
 
 			cipherMap = make(map[string]core.Cipher)
 			for k, v := range config.User {
