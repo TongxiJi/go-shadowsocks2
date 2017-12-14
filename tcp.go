@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/shadowsocks/go-shadowsocks2/socks"
-	"strings"
 )
 
 // Create a SOCKS server listening on addr and proxy to server.
@@ -77,7 +76,8 @@ func tcpLocal(addr, server string, shadow func(net.Conn) net.Conn, getAddr func(
 			rc.(*net.TCPConn).SetKeepAlive(true)
 			defer rc.Close()
 
-			if err =  httpPlugin.ClientHandle(server, strings.Join([]string{username, password}, "-"), rc); err != nil {
+			authInfo := map[string]string{"username": username, "password": password}
+			if err = httpPlugin.ClientHandle(server, authInfo, rc); err != nil {
 				logf("http plugin client handel error: %v", err)
 				return
 			}

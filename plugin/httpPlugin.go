@@ -9,12 +9,12 @@ import (
 )
 
 type HttpPlugin struct {
-	DecodeToken func(token string) (authInfo *string, err error)
-	EncodeToken func(authInfo string) (token *string, err error)
-	Auth        func(authInfo string) (tokenId *string, err error)
+	DecodeToken func(token string) (authInfo map[string]string, err error)
+	EncodeToken func(authInfo map[string]string) (token *string, err error)
+	Auth        func(authInfo map[string]string) (tokenId *string, err error)
 }
 
-func (h *HttpPlugin) ClientHandle(server string, authInfo string, rc net.Conn) (err error) {
+func (h *HttpPlugin) ClientHandle(server string, authInfo map[string]string, rc net.Conn) (err error) {
 	req, err := http.NewRequest("GET", fmt.Sprintf("http://%s", server), nil)
 	if token, err := h.EncodeToken(authInfo); err != nil {
 		return err
@@ -40,11 +40,11 @@ func (h *HttpPlugin) ServerHandle(c net.Conn) (tokenId *string, err error) {
 		if token = req.Header.Get("Authorization"); len(token) == 0 {
 			return nil, errors.New("cant get user info from http basic auth")
 		} else {
-			var authInfo *string
+			var authInfo map[string]string
 			if authInfo, err = h.DecodeToken(token); err != nil {
 				return nil, err
 			}
-			if tokenId, err = h.Auth(*authInfo); err != nil {
+			if tokenId, err = h.Auth(authInfo); err != nil {
 				return nil, err
 			}
 		}
