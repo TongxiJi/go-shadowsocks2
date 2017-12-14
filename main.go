@@ -13,14 +13,17 @@ import (
 	"strings"
 	"syscall"
 	"time"
+	"encoding/json"
+	"crypto/md5"
+	"errors"
 
 	"github.com/shadowsocks/go-shadowsocks2/core"
 	"github.com/shadowsocks/go-shadowsocks2/socks"
 	"github.com/TongxiJi/go-shadowsocks2/plugin"
-	"encoding/json"
-	"crypto/md5"
-	"errors"
+	"github.com/dgrijalva/jwt-go"
 )
+
+const HMAC_STATIC_KEY = "32131dsadsaj923j8f72320fnnvngg"
 
 var config struct {
 	Verbose    bool
@@ -207,18 +210,40 @@ func main() {
 	<-sigCh
 }
 
-func decodeToken(token string) (authInfo map[string]string, err error) {
-	err = json.Unmarshal([]byte(token), &authInfo)
-	return authInfo, err
-}
+func decodeToken(tokenString string) (authInfo map[string]string, err error) {
+	logf("decodeToken tokenString:%s", tokenString)
+	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
+		//if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+		//	return nil, fmt.Errorf("unexpected signing method:%v", token.Header["alg"])
+		//}
+		return []byte(HMAC_STATIC_KEY), nil
+	})
 
-func encodeToken(authInfo map[string]string) (*string, error) {
-	tokenBytes, err := json.Marshal(authInfo)
 	if err != nil {
 		return nil, err
 	}
-	token := string(tokenBytes)
-	return &token, nil
+
+	authInfo = make(map[string]string,0)
+	if claims, ok := token.Claims.(jwt.MapClaims); ok && token.Valid {
+		for k, v := range claims {
+			authInfo[k] = v.(string)
+		}
+		logf("decodeToken authInfo:%v", authInfo)
+		return authInfo, nil
+	}
+	return nil, fmt.Errorf("decodeToken failed, %s", tokenString)
+}
+
+func encodeToken(authInfo map[string]string) (*string, error) {
+	mapClaims := jwt.MapClaims{}
+	for k, v := range authInfo {
+		mapClaims[k] = v
+	}
+	logf("encode token mapClaims:%v", mapClaims)
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, mapClaims)
+	tokenString, err := token.SignedString([]byte(HMAC_STATIC_KEY))
+	logf("encode token:%s", tokenString)
+	return &tokenString, err
 }
 
 func auth(token map[string]string) (tokenId *string, err error) {

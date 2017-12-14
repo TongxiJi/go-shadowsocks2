@@ -19,7 +19,7 @@ func (h *HttpPlugin) ClientHandle(server string, authInfo map[string]string, rc 
 	if token, err := h.EncodeToken(authInfo); err != nil {
 		return err
 	} else {
-		req.Header.Add("Authorization", *token)
+		req.Header.Set("Authorization", *token)
 	}
 	if err = req.Write(rc); err != nil {
 		return err
