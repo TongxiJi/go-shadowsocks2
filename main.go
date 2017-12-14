@@ -60,7 +60,7 @@ func main() {
 
 	flag.BoolVar(&config.Verbose, "verbose", false, "verbose mode")
 	flag.StringVar(&flags.ConfigFile, "config", "", "assign config file")
-	flag.StringVar(&flags.Cipher, "cipher", "CHACHA20-IETF", "available ciphers: "+strings.Join(core.ListCipher(), " "))
+	flag.StringVar(&flags.Cipher, "cipher", "CHACHA20-IETF", "available ciphers: " + strings.Join(core.ListCipher(), " "))
 	//flag.StringVar(&flags.Key, "key", "", "base64url-encoded key (derive from password if empty)")
 	flag.IntVar(&flags.Keygen, "keygen", 0, "generate a base64url-encoded random key of given length in byte")
 	flag.StringVar(&flags.UserName, "username", "", "(client-only) username")
@@ -73,7 +73,7 @@ func main() {
 	//flag.StringVar(&flags.RedirTCP6, "redir6", "", "(client-only) redirect TCP IPv6 from this address")
 	flag.StringVar(&flags.TCPTun, "tcptun", "", "(client-only) TCP tunnel (laddr1=raddr1,laddr2=raddr2,...)")
 	//flag.StringVar(&flags.UDPTun, "udptun", "", "(client-only) UDP tunnel (laddr1=raddr1,laddr2=raddr2,...)")
-	flag.DurationVar(&config.UDPTimeout, "udptimeout", 5*time.Minute, "UDP tunnel timeout")
+	flag.DurationVar(&config.UDPTimeout, "udptimeout", 5 * time.Minute, "UDP tunnel timeout")
 	flag.Parse()
 
 	if flags.Keygen > 0 {
@@ -98,7 +98,8 @@ func main() {
 		key = k
 	}
 
-	if flags.Client != "" { // client mode
+	if flags.Client != "" {
+		// client mode
 		addr := flags.Client
 		cipher := flags.Cipher
 		username = flags.UserName
@@ -147,7 +148,8 @@ func main() {
 		}
 	}
 
-	if flags.Server != "" { // server mode
+	if flags.Server != "" {
+		// server mode
 		addr := flags.Server
 		//cipher := flags.Cipher
 		//password := flags.Password
@@ -179,14 +181,9 @@ func main() {
 			logf("config %v", config)
 
 			httpPlugin = &plugin.HttpPlugin{
-				AuthUser: func(userDetail *plugin.UserDetails) (e error) {
-					if !strings.EqualFold(config.User[userDetail.UserName], userDetail.Password) {
-						logf("%s auth info is not correct", userDetail.UserName)
-						err = errors.New("auth info is not correct")
-						return
-					}
-					return
-				},
+				DecodeToken:decodeToken,
+				EncodeToken:encodeToken,
+				Auth: auth,
 			}
 
 			cipherMap = make(map[string]core.Cipher)
@@ -209,6 +206,31 @@ func main() {
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 	<-sigCh
 }
+
+func decodeToken(token string) (authInfo *string, err error) {
+	return &token, nil
+}
+
+func encodeToken(authInfo string) (token *string, err error) {
+	return &authInfo, nil
+}
+
+func auth(token string) (tokenId *string, err error) {
+	namepsd := strings.Split(token, "-")
+	if len(namepsd) != 2 {
+		logf("token format error:%v", token)
+		return nil, errors.New("token format error")
+	}
+
+	if !strings.EqualFold(config.User[namepsd[0]], namepsd[1]) {
+		logf("%s auth info is not correct", namepsd[0])
+		err = errors.New("auth info is not correct")
+		return
+	}
+	return &namepsd[0], nil
+}
+
+
 
 //func parseURL(s string) (addr, cipher, password string, err error) {
 //	u, err := url.Parse(s)

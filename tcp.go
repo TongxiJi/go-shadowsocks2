@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/shadowsocks/go-shadowsocks2/socks"
-	"github.com/TongxiJi/go-shadowsocks2/plugin"
+	"strings"
 )
 
 // Create a SOCKS server listening on addr and proxy to server.
@@ -77,7 +77,7 @@ func tcpLocal(addr, server string, shadow func(net.Conn) net.Conn, getAddr func(
 			rc.(*net.TCPConn).SetKeepAlive(true)
 			defer rc.Close()
 
-			if err = httpPlugin.ClientHandle(server,&plugin.UserDetails{UserName:username,Password:password},rc);err != nil {
+			if err = httpPlugin.ClientHandle(server, strings.Join([]string{username, password}, "-"), rc); err != nil {
 				logf("http plugin client handel error: %v", err)
 				return
 			}
@@ -123,16 +123,16 @@ func tcpRemote(addr string) {
 
 			var shadow func(net.Conn) net.Conn
 
-			var user *plugin.UserDetails
-			if user, err = httpPlugin.ServerHandle(c); err != nil {
-				logf("http plugin handle error: %v", err)
+			var tokenId *string
+			if tokenId, err = httpPlugin.ServerHandle(c); err != nil {
+				logf("http plugin server handle error: %v", err)
 				return
 			}
 
-			if chpher, ok := cipherMap[user.UserName]; ok {
-				shadow = chpher.StreamConn
+			if cipher, ok := cipherMap[*tokenId]; ok {
+				shadow = cipher.StreamConn
 			} else {
-				logf("not find user cipher: %s", user)
+				logf("not find cipher tokenId: %s", tokenId)
 				return
 			}
 
