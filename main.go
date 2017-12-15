@@ -15,7 +15,6 @@ import (
 	"time"
 	"encoding/json"
 	"crypto/md5"
-	"errors"
 
 	"github.com/shadowsocks/go-shadowsocks2/core"
 	"github.com/shadowsocks/go-shadowsocks2/socks"
@@ -250,7 +249,7 @@ func auth(token map[string]string) (tokenId *string, err error) {
 	username := token["username"]
 	if !strings.EqualFold(config.User[username], token["password"]) {
 		logf("%s auth info is not correct", username)
-		err = errors.New("auth info is not correct")
+		err = fmt.Errorf("auth info is not correct")
 		return
 	}
 	return &username, nil

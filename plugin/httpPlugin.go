@@ -33,30 +33,32 @@ func (h *HttpPlugin) ClientHandle(server string, authInfo map[string]string, rc 
 
 func (h *HttpPlugin) ServerHandle(c net.Conn) (tokenId *string, err error) {
 	reader := bufio.NewReader(c)
-	if req, err := http.ReadRequest(reader); err != nil {
-		return nil, err
-	} else {
+	var req *http.Request
+	if req, err = http.ReadRequest(reader); err == nil {
 		var token string
 		if token = req.Header.Get("Authorization"); len(token) == 0 {
-			return nil, errors.New("cant get user info from http basic auth")
+			err = fmt.Errorf("cant get user info from http basic auth")
 		} else {
 			var authInfo map[string]string
-			if authInfo, err = h.DecodeToken(token); err != nil {
-				return nil, err
-			}
-			if tokenId, err = h.Auth(authInfo); err != nil {
-				return nil, err
+			if authInfo, err = h.DecodeToken(token); err == nil {
+				tokenId, err = h.Auth(authInfo)
 			}
 		}
 	}
+
 	res := &http.Response{
 		ContentLength: 0,
-		Status:        "200 OK",
-		StatusCode:    200,
 		Close:         false,
 	}
-	if err = res.Write(c); err != nil {
-		return nil, err
+
+	if err == nil {
+		res.StatusCode = 200
+		res.Status = "200 OK!"
+	} else {
+		res.StatusCode = 403
+		res.Status = "403 forbidden!"
 	}
+
+	err = res.Write(c)
 	return tokenId, err
 }
