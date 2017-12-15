@@ -4,7 +4,6 @@ import (
 	"net/http"
 	"net"
 	"bufio"
-	"errors"
 	"fmt"
 )
 
