@@ -24,8 +24,12 @@ func (h *HttpPlugin) ClientHandle(server string, authInfo map[string]string, rc 
 		return err
 	}
 	reader := bufio.NewReader(rc)
-	if _, err := http.ReadResponse(reader, req); err != nil {
+	if res, err := http.ReadResponse(reader, req); err != nil {
 		return err
+	} else {
+		if res.StatusCode != 200 {
+			return fmt.Errorf(res.Status)
+		}
 	}
 	return nil
 }
@@ -57,7 +61,6 @@ func (h *HttpPlugin) ServerHandle(c net.Conn) (tokenId *string, err error) {
 		res.StatusCode = 403
 		res.Status = "403 forbidden!"
 	}
-
-	err = res.Write(c)
+	res.Write(c)
 	return tokenId, err
 }

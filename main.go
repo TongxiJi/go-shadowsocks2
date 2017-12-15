@@ -247,6 +247,9 @@ func encodeToken(authInfo map[string]string) (*string, error) {
 
 func auth(token map[string]string) (tokenId *string, err error) {
 	username := token["username"]
+	if len(username) == 0 {
+		return nil,fmt.Errorf("username is empty")
+	}
 	if !strings.EqualFold(config.User[username], token["password"]) {
 		logf("%s auth info is not correct", username)
 		err = fmt.Errorf("auth info is not correct")
