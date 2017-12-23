@@ -5,12 +5,16 @@ import (
 	"net"
 	"bufio"
 	"fmt"
+	"io/ioutil"
+	"bytes"
 )
 
 type HttpPlugin struct {
-	DecodeToken func(token string) (authInfo map[string]string, err error)
-	EncodeToken func(authInfo map[string]string) (token *string, err error)
-	Auth        func(authInfo map[string]string) (tokenId *string, err error)
+	EncodeToken          func(authInfo map[string]string) (token *string, err error)
+	DecodeToken          func(token string) (authInfo map[string]string, err error)
+
+	ServerHandelResponse func(authInfo map[string]string) (resBody *string, tokenId *string, err error)
+	ClientHandelResponse func(resBody string) error
 }
 
 func (h *HttpPlugin) ClientHandle(server string, authInfo map[string]string, rc net.Conn) (err error) {
@@ -30,6 +34,17 @@ func (h *HttpPlugin) ClientHandle(server string, authInfo map[string]string, rc 
 		if res.StatusCode != 200 {
 			return fmt.Errorf(res.Status)
 		}
+
+		if res.StatusCode == 200 && res.ContentLength != 0 {
+
+			if response, err := ioutil.ReadAll(res.Body); err != nil {
+				return err
+			} else {
+				if err = h.ClientHandelResponse(string(response)); err != nil {
+					return err
+				}
+			}
+		}
 	}
 	return nil
 }
@@ -37,6 +52,7 @@ func (h *HttpPlugin) ClientHandle(server string, authInfo map[string]string, rc 
 func (h *HttpPlugin) ServerHandle(c net.Conn) (tokenId *string, err error) {
 	reader := bufio.NewReader(c)
 	var req *http.Request
+	var resBody  *string
 	if req, err = http.ReadRequest(reader); err == nil {
 		var token string
 		if token = req.Header.Get("Authorization"); len(token) == 0 {
@@ -44,7 +60,7 @@ func (h *HttpPlugin) ServerHandle(c net.Conn) (tokenId *string, err error) {
 		} else {
 			var authInfo map[string]string
 			if authInfo, err = h.DecodeToken(token); err == nil {
-				tokenId, err = h.Auth(authInfo)
+				resBody, tokenId, err = h.ServerHandelResponse(authInfo)
 			}
 		}
 	}
@@ -57,6 +73,10 @@ func (h *HttpPlugin) ServerHandle(c net.Conn) (tokenId *string, err error) {
 	if err == nil {
 		res.StatusCode = 200
 		res.Status = "200 OK!"
+		if resBody != nil {
+			res.ContentLength = int64(len(*resBody))
+			res.Body = ioutil.NopCloser(bytes.NewBufferString(*resBody))
+		}
 	} else {
 		res.StatusCode = 403
 		res.Status = "403 forbidden!"

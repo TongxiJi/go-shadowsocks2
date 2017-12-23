@@ -9,20 +9,30 @@ import (
 	"log"
 	//"net/url"
 	"os"
-	"os/signal"
 	"strings"
-	"syscall"
 	"time"
 	"encoding/json"
 	"crypto/md5"
 
 	"github.com/shadowsocks/go-shadowsocks2/core"
-	"github.com/shadowsocks/go-shadowsocks2/socks"
+	"github.com/TongxiJi/go-shadowsocks2/socks"
 	"github.com/TongxiJi/go-shadowsocks2/plugin"
 	"github.com/dgrijalva/jwt-go"
+	"net"
+	"os/exec"
+	//"os/signal"
+	//"syscall"
+	"path/filepath"
+	"os/signal"
+	"syscall"
 )
 
 const HMAC_STATIC_KEY = "32131dsadsaj923j8f72320fnnvngg"
+const DIAL_TIME_OUT = time.Second * 20
+
+const (
+	ACT_START = "act_start"
+)
 
 var config struct {
 	Verbose    bool
@@ -37,8 +47,7 @@ func logf(f string, v ...interface{}) {
 }
 
 var username, password string
-var cipherMap map[string]core.Cipher
-
+var userManager *OnlineUserManager
 var httpPlugin *plugin.HttpPlugin
 
 func main() {
@@ -62,7 +71,7 @@ func main() {
 
 	flag.BoolVar(&config.Verbose, "verbose", false, "verbose mode")
 	flag.StringVar(&flags.ConfigFile, "config", "", "assign config file")
-	flag.StringVar(&flags.Cipher, "cipher", "CHACHA20-IETF", "available ciphers: "+strings.Join(core.ListCipher(), " "))
+	flag.StringVar(&flags.Cipher, "cipher", "CHACHA20-IETF", "available ciphers: " + strings.Join(core.ListCipher(), " "))
 	//flag.StringVar(&flags.Key, "key", "", "base64url-encoded key (derive from password if empty)")
 	flag.IntVar(&flags.Keygen, "keygen", 0, "generate a base64url-encoded random key of given length in byte")
 	flag.StringVar(&flags.UserName, "username", "", "(client-only) username")
@@ -75,7 +84,7 @@ func main() {
 	//flag.StringVar(&flags.RedirTCP6, "redir6", "", "(client-only) redirect TCP IPv6 from this address")
 	flag.StringVar(&flags.TCPTun, "tcptun", "", "(client-only) TCP tunnel (laddr1=raddr1,laddr2=raddr2,...)")
 	//flag.StringVar(&flags.UDPTun, "udptun", "", "(client-only) UDP tunnel (laddr1=raddr1,laddr2=raddr2,...)")
-	flag.DurationVar(&config.UDPTimeout, "udptimeout", 5*time.Minute, "UDP tunnel timeout")
+	flag.DurationVar(&config.UDPTimeout, "udptimeout", 5 * time.Minute, "UDP tunnel timeout")
 	flag.Parse()
 
 	if flags.Keygen > 0 {
@@ -103,7 +112,8 @@ func main() {
 	httpPlugin = &plugin.HttpPlugin{
 		DecodeToken: decodeToken,
 		EncodeToken: encodeToken,
-		Auth:        auth,
+		ServerHandelResponse: serverHandelResponse,
+		ClientHandelResponse: clientHandelResponse,
 	}
 
 	if flags.Client != "" {
@@ -154,6 +164,9 @@ func main() {
 			//	go udpSocksLocal(flags.Socks, addr, ciph.PacketConn)
 			//}
 		}
+
+
+		//go startOpenVPN()
 	}
 
 	if flags.Server != "" {
@@ -176,6 +189,8 @@ func main() {
 		//	log.Fatal(err)
 		//}
 
+		userManager = &OnlineUserManager{}
+
 		if len(flags.ConfigFile) != 0 {
 			cipher := flags.Cipher
 
@@ -188,7 +203,6 @@ func main() {
 			json.NewDecoder(file).Decode(&config)
 			logf("config %v", config)
 
-			cipherMap = make(map[string]core.Cipher)
 			for k, v := range config.User {
 				md5Slice := md5.Sum([]byte(v))
 				ciph, err := core.PickCipher(cipher, key, string(md5Slice[:]))
@@ -196,9 +210,35 @@ func main() {
 					logf("get cipher error:%v", err)
 					continue
 				}
-				cipherMap[k] = ciph
+
+				//test
+				userManager.Add(k, &OnlineUser{
+					Conns:make([]net.Conn, 0),
+					Cipher:ciph,
+				})
 			}
 		}
+
+		ticker := time.NewTicker(time.Second * 10)
+		go func() {
+			for range ticker.C {
+				length := 0
+				userManager.Range(func(userToken, user interface{}) bool {
+					length ++
+					logf("user token:%s,total conns:%d", userToken.(string), len(user.(*OnlineUser).Conns))
+					return true
+				})
+				logf("total  online  user:%d", length)
+			}
+		}()
+
+		//timer := time.NewTimer(time.Minute * 2)
+		//go func() {
+		//	<-timer.C
+		//	userToken := "test"
+		//	userManager.Del(userToken)
+		//	logf("delete user %s and kick all connections", userToken)
+		//}()
 
 		//go udpRemote(addr)
 		go tcpRemote(addr)
@@ -222,7 +262,7 @@ func decodeToken(tokenString string) (authInfo map[string]string, err error) {
 		return nil, err
 	}
 
-	authInfo = make(map[string]string,0)
+	authInfo = make(map[string]string, 0)
 	if claims, ok := token.Claims.(jwt.MapClaims); ok && token.Valid {
 		for k, v := range claims {
 			authInfo[k] = v.(string)
@@ -245,17 +285,47 @@ func encodeToken(authInfo map[string]string) (*string, error) {
 	return &tokenString, err
 }
 
-func auth(token map[string]string) (tokenId *string, err error) {
+func serverHandelResponse(token map[string]string) (resBody, tokenId *string, err error) {
+	logf("serverHandelResponse :%v", token)
 	username := token["username"]
 	if len(username) == 0 {
-		return nil,fmt.Errorf("username is empty")
+		err = fmt.Errorf("username is empty")
+		return
 	}
 	if !strings.EqualFold(config.User[username], token["password"]) {
 		logf("%s auth info is not correct", username)
 		err = fmt.Errorf("auth info is not correct")
 		return
 	}
-	return &username, nil
+
+	resultClaims := jwt.MapClaims{
+		"code":0,
+		"message":"hello world",
+	}
+	result := jwt.NewWithClaims(jwt.SigningMethodHS256, resultClaims)
+	resultSignedString, err := result.SignedString([]byte(HMAC_STATIC_KEY))
+	return &resultSignedString, &username, err
+}
+
+func clientHandelResponse(authResponse string) (err error) {
+	logf("clientHandelResponse :%s", authResponse)
+
+	response, err := jwt.Parse(authResponse, func(token *jwt.Token) (interface{}, error) {
+		//if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+		//	return nil, fmt.Errorf("unexpected signing method:%v", token.Header["alg"])
+		//}
+		return []byte(HMAC_STATIC_KEY), nil
+	})
+	if err != nil {
+		return err
+	}
+
+	if responseClaims, ok := response.Claims.(jwt.MapClaims); ok && response.Valid {
+		logf("responseClaims:%v", responseClaims)
+		return nil
+	} else {
+		return fmt.Errorf("claims is not valid:%v", responseClaims)
+	}
 }
 
 //func parseURL(s string) (addr, cipher, password string, err error) {

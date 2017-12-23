@@ -5,7 +5,7 @@ import (
 	"net"
 	"time"
 
-	"github.com/shadowsocks/go-shadowsocks2/socks"
+	"github.com/TongxiJi/go-shadowsocks2/socks"
 	"strconv"
 )
 
@@ -69,7 +69,7 @@ func tcpLocal(addr, server string, shadow func(net.Conn) net.Conn, getAddr func(
 				return
 			}
 
-			rc, err := net.Dial("tcp", server)
+			rc, err := net.DialTimeout("tcp", server, DIAL_TIME_OUT)
 			if err != nil {
 				logf("failed to connect to server %v: %v", server, err)
 				return
@@ -134,8 +134,8 @@ func tcpRemote(addr string) {
 				return
 			}
 
-			if cipher, ok := cipherMap[*tokenId]; ok {
-				shadow = cipher.StreamConn
+			if v, ok := userManager.Load(*tokenId); ok {
+				shadow = v.(*OnlineUser).Cipher.StreamConn
 			} else {
 				logf("not find cipher tokenId: %s", tokenId)
 				return
@@ -148,13 +148,16 @@ func tcpRemote(addr string) {
 				return
 			}
 
-			rc, err := net.Dial("tcp", tgt.String())
+			rc, err := net.DialTimeout("tcp", tgt.String(), DIAL_TIME_OUT)
 			if err != nil {
 				logf("failed to connect to target: %v", err)
 				return
 			}
 			defer rc.Close()
 			rc.(*net.TCPConn).SetKeepAlive(true)
+
+			defer userManager.delConn(*tokenId, c)
+			userManager.addConn(*tokenId, c)
 
 			logf("proxy %s <-> %s", c.RemoteAddr(), tgt)
 			inbound, outbound, err := relay(c, rc)
