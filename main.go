@@ -8,21 +8,16 @@ import (
 	"io"
 	"log"
 	//"net/url"
+	"crypto/md5"
+	"encoding/json"
 	"os"
 	"strings"
 	"time"
-	"encoding/json"
-	"crypto/md5"
 
-	"github.com/shadowsocks/go-shadowsocks2/core"
-	"github.com/TongxiJi/go-shadowsocks2/socks"
 	"github.com/TongxiJi/go-shadowsocks2/plugin"
+	"github.com/TongxiJi/go-shadowsocks2/socks"
 	"github.com/dgrijalva/jwt-go"
-	"net"
-	"os/exec"
-	//"os/signal"
-	//"syscall"
-	"path/filepath"
+	"github.com/shadowsocks/go-shadowsocks2/core"
 	"os/signal"
 	"syscall"
 )
@@ -31,13 +26,31 @@ const HMAC_STATIC_KEY = "32131dsadsaj923j8f72320fnnvngg"
 const DIAL_TIME_OUT = time.Second * 20
 
 const (
-	ACT_START = "act_start"
+	ACCT_START  = "acct_start"
+	ACCT_UPDATE = "acct_update"
+	ACCT_STOP   = "acct_stop"
+	ACCT_PROXY  = "acct_proxy"
 )
 
 var config struct {
-	Verbose    bool
+	Client     string
+	Server     string
+	Cipher     string
+	Key        string
+	UserName   string
+	Password   string
+	TokenId    string
+	Keygen     int
+	Socks      string
+	RedirTCP   string
+	RedirTCP6  string
+	TCPTun     string
+	UDPTun     string
+	UDPSocks   bool
+	ConfigFile string
 	UDPTimeout time.Duration
 	User       map[string]string `json:"user"`
+	Verbose    bool
 }
 
 func logf(f string, v ...interface{}) {
@@ -46,49 +59,31 @@ func logf(f string, v ...interface{}) {
 	}
 }
 
-var username, password string
 var userManager *OnlineUserManager
 var httpPlugin *plugin.HttpPlugin
 
 func main() {
 
-	var flags struct {
-		Client     string
-		Server     string
-		Cipher     string
-		Key        string
-		UserName   string
-		Password   string
-		Keygen     int
-		Socks      string
-		RedirTCP   string
-		RedirTCP6  string
-		TCPTun     string
-		UDPTun     string
-		UDPSocks   bool
-		ConfigFile string
-	}
-
 	flag.BoolVar(&config.Verbose, "verbose", false, "verbose mode")
-	flag.StringVar(&flags.ConfigFile, "config", "", "assign config file")
-	flag.StringVar(&flags.Cipher, "cipher", "CHACHA20-IETF", "available ciphers: " + strings.Join(core.ListCipher(), " "))
+	flag.StringVar(&config.ConfigFile, "config", "", "assign config file")
+	flag.StringVar(&config.Cipher, "cipher", "CHACHA20-IETF", "available ciphers: "+strings.Join(core.ListCipher(), " "))
 	//flag.StringVar(&flags.Key, "key", "", "base64url-encoded key (derive from password if empty)")
-	flag.IntVar(&flags.Keygen, "keygen", 0, "generate a base64url-encoded random key of given length in byte")
-	flag.StringVar(&flags.UserName, "username", "", "(client-only) username")
-	flag.StringVar(&flags.Password, "password", "", "(client-only) password")
-	flag.StringVar(&flags.Server, "s", "", "server listen address or url")
-	flag.StringVar(&flags.Client, "c", "", "client connect address or url")
-	flag.StringVar(&flags.Socks, "socks", "", "(client-only) SOCKS listen address")
+	flag.IntVar(&config.Keygen, "keygen", 0, "generate a base64url-encoded random key of given length in byte")
+	flag.StringVar(&config.UserName, "username", "", "(client-only) username")
+	flag.StringVar(&config.Password, "password", "", "(client-only) password")
+	flag.StringVar(&config.Server, "s", "", "server listen address or url")
+	flag.StringVar(&config.Client, "c", "", "client connect address or url")
+	flag.StringVar(&config.Socks, "socks", "", "(client-only) SOCKS listen address")
 	//flag.BoolVar(&flags.UDPSocks, "u", false, "(client-only) Enable UDP support for SOCKS")
 	//flag.StringVar(&flags.RedirTCP, "redir", "", "(client-only) redirect TCP from this address")
 	//flag.StringVar(&flags.RedirTCP6, "redir6", "", "(client-only) redirect TCP IPv6 from this address")
-	flag.StringVar(&flags.TCPTun, "tcptun", "", "(client-only) TCP tunnel (laddr1=raddr1,laddr2=raddr2,...)")
+	flag.StringVar(&config.TCPTun, "tcptun", "", "(client-only) TCP tunnel (laddr1=raddr1,laddr2=raddr2,...)")
 	//flag.StringVar(&flags.UDPTun, "udptun", "", "(client-only) UDP tunnel (laddr1=raddr1,laddr2=raddr2,...)")
-	flag.DurationVar(&config.UDPTimeout, "udptimeout", 5 * time.Minute, "UDP tunnel timeout")
+	flag.DurationVar(&config.UDPTimeout, "udptimeout", 5*time.Minute, "UDP tunnel timeout")
 	flag.Parse()
 
-	if flags.Keygen > 0 {
-		key := make([]byte, flags.Keygen)
+	if config.Keygen > 0 {
+		key := make([]byte, config.Keygen)
 		io.ReadFull(rand.Reader, key)
 		fmt.Println(base64.URLEncoding.EncodeToString(key))
 		return
@@ -101,8 +96,8 @@ func main() {
 	//}
 
 	var key []byte
-	if flags.Key != "" {
-		k, err := base64.URLEncoding.DecodeString(flags.Key)
+	if config.Key != "" {
+		k, err := base64.URLEncoding.DecodeString(config.Key)
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -110,18 +105,14 @@ func main() {
 	}
 
 	httpPlugin = &plugin.HttpPlugin{
-		DecodeToken: decodeToken,
-		EncodeToken: encodeToken,
+		DecodeToken:          decodeToken,
+		EncodeToken:          encodeToken,
 		ServerHandelResponse: serverHandelResponse,
 		ClientHandelResponse: clientHandelResponse,
 	}
 
-	if flags.Client != "" {
+	if config.Client != "" {
 		// client mode
-		addr := flags.Client
-		cipher := flags.Cipher
-		username = flags.UserName
-		password = flags.Password
 		var err error
 
 		//if strings.HasPrefix(addr, "ss://") {
@@ -130,9 +121,16 @@ func main() {
 		//		log.Fatal(err)
 		//	}
 		//}
+		var tokenId *string
+		if tokenId, err = clientAcctStart(config.UserName, config.Password); err != nil {
+			logf("clientAcctStart error:%v", err)
+			return
+		} else {
+			config.TokenId = *tokenId
+		}
 
-		md5Slice := md5.Sum([]byte(password))
-		ciph, err := core.PickCipher(cipher, key, string(md5Slice[:]))
+		md5Slice := md5.Sum([]byte(config.TokenId))
+		ciph, err := core.PickCipher(config.Cipher, key, string(md5Slice[:]))
 		if err != nil {
 			logf("set cipher error:%v", err)
 			return
@@ -150,28 +148,27 @@ func main() {
 		//	}
 		//}
 
-		if flags.TCPTun != "" {
-			for _, tun := range strings.Split(flags.TCPTun, ",") {
+		if config.TCPTun != "" {
+			for _, tun := range strings.Split(config.TCPTun, ",") {
 				p := strings.Split(tun, "=")
-				go tcpTun(p[0], addr, p[1], ciph.StreamConn)
+				go tcpTun(p[0], config.Client, p[1], ciph.StreamConn)
 			}
 		}
 
-		if flags.Socks != "" {
-			socks.UDPEnabled = flags.UDPSocks
-			go socksLocal(flags.Socks, addr, ciph.StreamConn)
+		if config.Socks != "" {
+			socks.UDPEnabled = config.UDPSocks
+			go socksLocal(config.Socks, config.Client, ciph.StreamConn)
 			//if flags.UDPSocks {
 			//	go udpSocksLocal(flags.Socks, addr, ciph.PacketConn)
 			//}
 		}
 
-
 		//go startOpenVPN()
 	}
 
-	if flags.Server != "" {
+	if config.Server != "" {
 		// server mode
-		addr := flags.Server
+		addr := config.Server
 		//cipher := flags.Cipher
 		//password := flags.Password
 
@@ -191,10 +188,8 @@ func main() {
 
 		userManager = &OnlineUserManager{}
 
-		if len(flags.ConfigFile) != 0 {
-			cipher := flags.Cipher
-
-			file, err := os.Open(flags.ConfigFile)
+		if len(config.ConfigFile) != 0 {
+			file, err := os.Open(config.ConfigFile)
 			if err != nil {
 				logf("read config error: %v", err)
 				return
@@ -203,20 +198,20 @@ func main() {
 			json.NewDecoder(file).Decode(&config)
 			logf("config %v", config)
 
-			for k, v := range config.User {
-				md5Slice := md5.Sum([]byte(v))
-				ciph, err := core.PickCipher(cipher, key, string(md5Slice[:]))
-				if err != nil {
-					logf("get cipher error:%v", err)
-					continue
-				}
-
-				//test
-				userManager.Add(k, &OnlineUser{
-					Conns:make([]net.Conn, 0),
-					Cipher:ciph,
-				})
-			}
+			//for k, v := range config.User {
+			//	md5Slice := md5.Sum([]byte(v))
+			//	ciph, err := core.PickCipher(cipher, key, string(md5Slice[:]))
+			//	if err != nil {
+			//		logf("get cipher error:%v", err)
+			//		continue
+			//	}
+			//
+			//	//test
+			//	userManager.Add(k, &OnlineUser{
+			//		Conns:make([]net.Conn, 0),
+			//		Cipher:ciph,
+			//	})
+			//}
 		}
 
 		ticker := time.NewTicker(time.Second * 10)
@@ -224,7 +219,7 @@ func main() {
 			for range ticker.C {
 				length := 0
 				userManager.Range(func(userToken, user interface{}) bool {
-					length ++
+					length++
 					logf("user token:%s,total conns:%d", userToken.(string), len(user.(*OnlineUser).Conns))
 					return true
 				})
@@ -287,24 +282,37 @@ func encodeToken(authInfo map[string]string) (*string, error) {
 
 func serverHandelResponse(token map[string]string) (resBody, tokenId *string, err error) {
 	logf("serverHandelResponse :%v", token)
-	username := token["username"]
-	if len(username) == 0 {
-		err = fmt.Errorf("username is empty")
-		return
-	}
-	if !strings.EqualFold(config.User[username], token["password"]) {
-		logf("%s auth info is not correct", username)
-		err = fmt.Errorf("auth info is not correct")
-		return
-	}
 
-	resultClaims := jwt.MapClaims{
-		"code":0,
-		"message":"hello world",
+	switch token["acct"] {
+	case ACCT_START:
+		if resBody, tokenId, err = serverAcctStart(token["username"], token["password"]); err != nil {
+			logf("serverHandelResponse err:%v", err)
+			return nil, nil, err
+		}
+		md5Slice := md5.Sum([]byte(*tokenId))
+		ciph, err := core.PickCipher(config.Cipher, []byte(config.Key), string(md5Slice[:]))
+		if err != nil {
+			logf("generate cipher error:%v", err)
+			return nil, nil, err
+		}
+		newUser := NewOnlineUser(ciph)
+		newUser.Timer=time.AfterFunc(ACCT_TIME_OUT, func() {
+			userManager.Del(*tokenId)
+		})
+		userManager.Add(*tokenId,newUser)
+
+		return resBody, tokenId, nil
+	case ACCT_UPDATE:
+		break
+	case ACCT_STOP:
+		break
+	case ACCT_PROXY:
+		//username := token["username"]
+		if tokenId,ok := token["tokenId"];ok {
+			return nil, &tokenId, nil
+		}
 	}
-	result := jwt.NewWithClaims(jwt.SigningMethodHS256, resultClaims)
-	resultSignedString, err := result.SignedString([]byte(HMAC_STATIC_KEY))
-	return &resultSignedString, &username, err
+	return nil, nil, fmt.Errorf("acct type \"%s\" not support", token["acct"])
 }
 
 func clientHandelResponse(authResponse string) (err error) {

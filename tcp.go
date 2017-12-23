@@ -78,8 +78,9 @@ func tcpLocal(addr, server string, shadow func(net.Conn) net.Conn, getAddr func(
 			defer rc.Close()
 
 			authInfo := map[string]string{
-				"username": username,
-				"password": password,
+				"acct":     ACCT_PROXY,
+				"username": config.UserName,
+				"tokenId":  config.TokenId,
 				"time":     strconv.FormatInt(time.Now().Unix(), 10),
 			}
 			if err = httpPlugin.ClientHandle(server, authInfo, rc); err != nil {

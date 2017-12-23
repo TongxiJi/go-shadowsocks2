@@ -1,7 +1,6 @@
 package main
 
-const OpenvpnConfigTemplate  =
-`
+const OpenvpnConfigTemplate = `
 client
 dev tun
 proto tcp

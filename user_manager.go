@@ -1,19 +1,27 @@
 package main
 
 import (
+	"net"
 	"sync"
 	"time"
-	"net"
 
 	"github.com/shadowsocks/go-shadowsocks2/core"
 )
 
-const ACCT_TIME_OUT = time.Minute * 3
+const ACCT_TIME_OUT = time.Minute * 1
+const ACCT_UPDATE_MAX_FAILD_TIMES = 3
 
 type OnlineUser struct {
 	Timer  *time.Timer
 	Conns  []net.Conn
 	Cipher core.Cipher
+}
+
+func NewOnlineUser(ciph core.Cipher) *OnlineUser{
+	return &OnlineUser{
+		Conns:  make([]net.Conn, 0),
+		Cipher: ciph,
+	}
 }
 
 type OnlineUserManager struct {
@@ -25,7 +33,7 @@ func (um *OnlineUserManager) Add(userToken string, user *OnlineUser) {
 	um.Store(userToken, user)
 }
 
-func (um *OnlineUserManager) Get(userToken string) (*OnlineUser) {
+func (um *OnlineUserManager) Get(userToken string) *OnlineUser {
 	if v, ok := um.Load(userToken); ok {
 		return v.(*OnlineUser)
 	}
@@ -58,14 +66,13 @@ func (um *OnlineUserManager) delConn(userToken string, conn net.Conn) {
 		conns := v.(*OnlineUser).Conns
 		for i, c := range conns {
 			if c == nil {
-				v.(*OnlineUser).Conns = append(conns[:i], conns[i + 1:]...)
+				v.(*OnlineUser).Conns = append(conns[:i], conns[i+1:]...)
 			} else if conn == c {
-				v.(*OnlineUser).Conns = append(conns[:i], conns[i + 1:]...)
+				v.(*OnlineUser).Conns = append(conns[:i], conns[i+1:]...)
 			}
 		}
 	}
 }
-
 
 //func (um *OnlineUserManager)ApiAcctStart(user *string, psd *string, otherInfo *string) (sessionId *string) {
 //	return nil
