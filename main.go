@@ -25,12 +25,6 @@ import (
 const HMAC_STATIC_KEY = "32131dsadsaj923j8f72320fnnvngg"
 const DIAL_TIME_OUT = time.Second * 20
 
-const (
-	ACCT_START  = "acct_start"
-	ACCT_UPDATE = "acct_update"
-	ACCT_STOP   = "acct_stop"
-	ACCT_PROXY  = "acct_proxy"
-)
 
 var config struct {
 	Client     string
@@ -111,42 +105,40 @@ func main() {
 		ClientHandelResponse: clientHandelResponse,
 	}
 
+	// client mode
 	if config.Client != "" {
-		// client mode
 		var err error
-
-		//if strings.HasPrefix(addr, "ss://") {
-		//	addr, cipher, password, err = parseURL(addr)
-		//	if err != nil {
-		//		log.Fatal(err)
-		//	}
-		//}
+		//acct-start
 		var tokenId *string
+
+		//acct_start
 		if tokenId, err = clientAcctStart(config.UserName, config.Password); err != nil {
 			logf("clientAcctStart error:%v", err)
 			return
-		} else {
-			config.TokenId = *tokenId
 		}
+		config.TokenId = *tokenId
+		//acct_stop
+		defer clientAcctStop(config.UserName, config.TokenId)
+		//acct_update
+		updateTicker := time.NewTicker(ACCT_UPDATE_INTERVAL)
+		go func() {
+			for range updateTicker.C {
+				if err = clientAcctUpdate(config.UserName, config.TokenId); err != nil {
+					//TODO 对于失败的情况多种， 如认证服务挂了 网络挂了，应该允许这种情况
+					logf("clientAcctUpdate error:%v", err)
+					os.Exit(1)
+				}
+			}
+		}()
 
+
+		//生成当前的加密
 		md5Slice := md5.Sum([]byte(config.TokenId))
 		ciph, err := core.PickCipher(config.Cipher, key, string(md5Slice[:]))
 		if err != nil {
 			logf("set cipher error:%v", err)
 			return
 		}
-
-		//ciph, err := core.PickCipher(cipher, key, password)
-		//if err != nil {
-		//	log.Fatal(err)
-		//}
-
-		//if flags.UDPTun != "" {
-		//	for _, tun := range strings.Split(flags.UDPTun, ",") {
-		//		p := strings.Split(tun, "=")
-		//		go udpLocal(p[0], addr, p[1], ciph.PacketConn)
-		//	}
-		//}
 
 		if config.TCPTun != "" {
 			for _, tun := range strings.Split(config.TCPTun, ",") {
@@ -166,26 +158,8 @@ func main() {
 		//go startOpenVPN()
 	}
 
+	// server mode
 	if config.Server != "" {
-		// server mode
-		addr := config.Server
-		//cipher := flags.Cipher
-		//password := flags.Password
-
-		//var err error
-
-		//if strings.HasPrefix(addr, "ss://") {
-		//	addr, cipher, password, err = parseURL(addr)
-		//	if err != nil {
-		//		log.Fatal(err)
-		//	}
-		//}
-
-		//ciph, err := core.PickCipher(cipher, key, password)
-		//if err != nil {
-		//	log.Fatal(err)
-		//}
-
 		userManager = &OnlineUserManager{}
 
 		if len(config.ConfigFile) != 0 {
@@ -197,21 +171,6 @@ func main() {
 			defer file.Close()
 			json.NewDecoder(file).Decode(&config)
 			logf("config %v", config)
-
-			//for k, v := range config.User {
-			//	md5Slice := md5.Sum([]byte(v))
-			//	ciph, err := core.PickCipher(cipher, key, string(md5Slice[:]))
-			//	if err != nil {
-			//		logf("get cipher error:%v", err)
-			//		continue
-			//	}
-			//
-			//	//test
-			//	userManager.Add(k, &OnlineUser{
-			//		Conns:make([]net.Conn, 0),
-			//		Cipher:ciph,
-			//	})
-			//}
 		}
 
 		ticker := time.NewTicker(time.Second * 10)
@@ -227,16 +186,8 @@ func main() {
 			}
 		}()
 
-		//timer := time.NewTimer(time.Minute * 2)
-		//go func() {
-		//	<-timer.C
-		//	userToken := "test"
-		//	userManager.Del(userToken)
-		//	logf("delete user %s and kick all connections", userToken)
-		//}()
-
 		//go udpRemote(addr)
-		go tcpRemote(addr)
+		go tcpRemote(config.Server)
 	}
 
 	sigCh := make(chan os.Signal, 1)
@@ -245,7 +196,7 @@ func main() {
 }
 
 func decodeToken(tokenString string) (authInfo map[string]string, err error) {
-	logf("decodeToken tokenString:%s", tokenString)
+	//logf("decodeToken tokenString:%s", tokenString)
 	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
 		//if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
 		//	return nil, fmt.Errorf("unexpected signing method:%v", token.Header["alg"])
@@ -262,7 +213,7 @@ func decodeToken(tokenString string) (authInfo map[string]string, err error) {
 		for k, v := range claims {
 			authInfo[k] = v.(string)
 		}
-		logf("decodeToken authInfo:%v", authInfo)
+		//logf("decodeToken authInfo:%v", authInfo)
 		return authInfo, nil
 	}
 	return nil, fmt.Errorf("decodeToken failed, %s", tokenString)
@@ -273,7 +224,7 @@ func encodeToken(authInfo map[string]string) (*string, error) {
 	for k, v := range authInfo {
 		mapClaims[k] = v
 	}
-	logf("encode token mapClaims:%v", mapClaims)
+	//logf("encode token mapClaims:%v", mapClaims)
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, mapClaims)
 	tokenString, err := token.SignedString([]byte(HMAC_STATIC_KEY))
 	logf("encode token:%s", tokenString)
@@ -286,26 +237,19 @@ func serverHandelResponse(token map[string]string) (resBody, tokenId *string, er
 	switch token["acct"] {
 	case ACCT_START:
 		if resBody, tokenId, err = serverAcctStart(token["username"], token["password"]); err != nil {
-			logf("serverHandelResponse err:%v", err)
 			return nil, nil, err
+		} else {
+			userManager.Add(*tokenId)
 		}
-		md5Slice := md5.Sum([]byte(*tokenId))
-		ciph, err := core.PickCipher(config.Cipher, []byte(config.Key), string(md5Slice[:]))
-		if err != nil {
-			logf("generate cipher error:%v", err)
-			return nil, nil, err
-		}
-		newUser := NewOnlineUser(ciph)
-		newUser.Timer=time.AfterFunc(ACCT_TIME_OUT, func() {
-			userManager.Del(*tokenId)
-		})
-		userManager.Add(*tokenId,newUser)
-
-		return resBody, tokenId, nil
+		return resBody, nil, nil
 	case ACCT_UPDATE:
-		break
+		if resBody,err = serverAcctUpdate(token["username"], token["tokenId"]);err == nil{
+			userManager.Refresh(token["tokenId"])
+		}
+		return resBody, nil, nil
 	case ACCT_STOP:
-		break
+		err = serverAcctStop(token["username"], token["tokenId"])
+		return nil, nil, nil
 	case ACCT_PROXY:
 		//username := token["username"]
 		if tokenId,ok := token["tokenId"];ok {
@@ -335,17 +279,3 @@ func clientHandelResponse(authResponse string) (err error) {
 		return fmt.Errorf("claims is not valid:%v", responseClaims)
 	}
 }
-
-//func parseURL(s string) (addr, cipher, password string, err error) {
-//	u, err := url.Parse(s)
-//	if err != nil {
-//		return
-//	}
-//
-//	addr = u.Host
-//	if u.User != nil {
-//		cipher = u.User.Username()
-//		password, _ = u.User.Password()
-//	}
-//	return
-//}

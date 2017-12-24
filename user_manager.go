@@ -6,9 +6,11 @@ import (
 	"time"
 
 	"github.com/shadowsocks/go-shadowsocks2/core"
+	"crypto/md5"
 )
 
-const ACCT_TIME_OUT = time.Minute * 1
+const ACCT_UPDATE_INTERVAL  = time.Minute * 3
+const ACCT_UPDATE_TIME_OUT =  time.Minute * 10
 const ACCT_UPDATE_MAX_FAILD_TIMES = 3
 
 type OnlineUser struct {
@@ -28,9 +30,26 @@ type OnlineUserManager struct {
 	sync.Map
 }
 
-func (um *OnlineUserManager) Add(userToken string, user *OnlineUser) {
+func (um *OnlineUserManager) Add(userToken string) {
+	md5Slice := md5.Sum([]byte(userToken))
+	ciph, err := core.PickCipher(config.Cipher, []byte(config.Key), string(md5Slice[:]))
+	if err != nil {
+		logf("generate cipher error:%v", err)
+		return
+	}
+	newUser := NewOnlineUser(ciph)
+	newUser.Timer=time.AfterFunc(ACCT_UPDATE_TIME_OUT, func() {
+		um.Del(userToken)
+	})
+
 	um.discAllConns(userToken)
-	um.Store(userToken, user)
+	um.Store(userToken, newUser)
+}
+
+func (um *OnlineUserManager) Refresh(userToken string) {
+	if v, ok := um.Load(userToken); ok {
+		  v.(*OnlineUser).Timer.Reset(ACCT_UPDATE_TIME_OUT)
+	}
 }
 
 func (um *OnlineUserManager) Get(userToken string) *OnlineUser {

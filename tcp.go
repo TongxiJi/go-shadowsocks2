@@ -135,10 +135,14 @@ func tcpRemote(addr string) {
 				return
 			}
 
+			if tokenId == nil {
+				return
+			}
+
 			if v, ok := userManager.Load(*tokenId); ok {
 				shadow = v.(*OnlineUser).Cipher.StreamConn
 			} else {
-				logf("not find cipher tokenId: %s", tokenId)
+				logf("not find cipher tokenId: %s", *tokenId)
 				return
 			}
 
