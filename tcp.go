@@ -5,7 +5,7 @@ import (
 	"net"
 	"time"
 
-	"github.com/TongxiJi/go-shadowsocks2/socks"
+	"github.com/shadowsocks/go-shadowsocks2/socks"
 	"strconv"
 )
 
@@ -69,7 +69,7 @@ func tcpLocal(addr, server string, shadow func(net.Conn) net.Conn, getAddr func(
 				return
 			}
 
-			rc, err := net.DialTimeout("tcp", server, DIAL_TIME_OUT)
+			rc, err := net.Dial("tcp", server)
 			if err != nil {
 				logf("failed to connect to server %v: %v", server, err)
 				return
@@ -78,9 +78,8 @@ func tcpLocal(addr, server string, shadow func(net.Conn) net.Conn, getAddr func(
 			defer rc.Close()
 
 			authInfo := map[string]string{
-				"acct":     ACCT_PROXY,
-				"username": config.UserName,
-				"tokenId":  config.TokenId,
+				"username": username,
+				"password": password,
 				"time":     strconv.FormatInt(time.Now().Unix(), 10),
 			}
 			if err = httpPlugin.ClientHandle(server, authInfo, rc); err != nil {
@@ -135,14 +134,10 @@ func tcpRemote(addr string) {
 				return
 			}
 
-			if tokenId == nil {
-				return
-			}
-
-			if v, ok := userManager.Load(*tokenId); ok {
-				shadow = v.(*OnlineUser).Cipher.StreamConn
+			if cipher, ok := cipherMap[*tokenId]; ok {
+				shadow = cipher.StreamConn
 			} else {
-				logf("not find cipher tokenId: %s", *tokenId)
+				logf("not find cipher tokenId: %s", tokenId)
 				return
 			}
 
@@ -153,16 +148,13 @@ func tcpRemote(addr string) {
 				return
 			}
 
-			rc, err := net.DialTimeout("tcp", tgt.String(), DIAL_TIME_OUT)
+			rc, err := net.Dial("tcp", tgt.String())
 			if err != nil {
 				logf("failed to connect to target: %v", err)
 				return
 			}
 			defer rc.Close()
 			rc.(*net.TCPConn).SetKeepAlive(true)
-
-			defer userManager.delConn(*tokenId, c)
-			userManager.addConn(*tokenId, c)
 
 			logf("proxy %s <-> %s", c.RemoteAddr(), tgt)
 			inbound, outbound, err := relay(c, rc)
