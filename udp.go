@@ -225,8 +225,9 @@ func (m *natmap) Add(peer net.Addr, dst, src net.PacketConn, role mode) {
 
 // copy from src to dst at target with read timeout
 func timedCopy(dst net.PacketConn, target net.Addr, src net.PacketConn, timeout time.Duration, role mode) error {
-	buf := make([]byte, udpBufSize)
-
+	//buf := make([]byte, udpBufSize)
+	buf := bufferPool.Get().([]byte)
+	defer bufferPool.Put(buf)
 	for {
 		src.SetReadDeadline(time.Now().Add(timeout))
 		n, raddr, err := src.ReadFrom(buf)

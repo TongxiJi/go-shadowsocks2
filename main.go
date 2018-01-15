@@ -20,6 +20,7 @@ import (
 	"github.com/shadowsocks/go-shadowsocks2/socks"
 	"github.com/TongxiJi/go-shadowsocks2/plugin"
 	"github.com/dgrijalva/jwt-go"
+	"sync"
 )
 
 const HMAC_STATIC_KEY = "32131dsadsaj923j8f72320fnnvngg"
@@ -40,6 +41,23 @@ var username, password string
 var cipherMap map[string]core.Cipher
 
 var httpPlugin *plugin.HttpPlugin
+
+var bufferPool = sync.Pool{New: createBuffer}
+
+func createBuffer() interface{} {
+	return make([]byte, 0, udpBufSize)
+}
+
+func pooledIoCopy(dst io.Writer, src io.Reader) (written int64, err error) {
+	buf := bufferPool.Get().([]byte)
+	defer bufferPool.Put(buf)
+
+	// CopyBuffer only uses buf up to its length and panics if it's 0.
+	// Due to that we extend buf's length to its capacity here and
+	// ensure it's always non-zero.
+	bufCap := cap(buf)
+	return io.CopyBuffer(dst, src, buf[0:bufCap:bufCap])
+}
 
 func main() {
 
