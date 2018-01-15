@@ -45,7 +45,7 @@ var httpPlugin *plugin.HttpPlugin
 var bufferPool = sync.Pool{New: createBuffer}
 
 func createBuffer() interface{} {
-	return make([]byte, 0, udpBufSize)
+	return make([]byte, udpBufSize)
 }
 
 func pooledIoCopy(dst io.Writer, src io.Reader) (written int64, err error) {
