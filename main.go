@@ -51,12 +51,7 @@ func createBuffer() interface{} {
 func pooledIoCopy(dst io.Writer, src io.Reader) (written int64, err error) {
 	buf := bufferPool.Get().([]byte)
 	defer bufferPool.Put(buf)
-
-	// CopyBuffer only uses buf up to its length and panics if it's 0.
-	// Due to that we extend buf's length to its capacity here and
-	// ensure it's always non-zero.
-	bufCap := cap(buf)
-	return io.CopyBuffer(dst, src, buf[0:bufCap:bufCap])
+	return io.CopyBuffer(dst, src, buf)
 }
 
 func main() {
